@@ -19,6 +19,11 @@ env:
 jobs:
   Build:
     runs-on: ubuntu-24.04
+    # --- 核心修复：添加权限声明 ---
+    permissions:
+      contents: write
+      actions: write
+    # --------------------------
 
     steps:
     - name: Check Server Performance(检查服务器性能)
@@ -57,7 +62,8 @@ jobs:
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="时间: %cd<br/>内容: %s<br/>hash: %H")
         echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
-        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
+        # 尝试匹配内核版本
+        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12 || echo "6.12.x")
         echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
 
     - name: Generate Variables(生成变量)
@@ -131,7 +137,9 @@ jobs:
         cp $OPENWRT_PATH/.config IPQ60XX.config
         mv config.buildinfo IPQ60XX.config.buildinfo
         mv libwrt-qualcommax-ipq60xx.manifest IPQ60XX.manifest
-        mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
+        # 确保目录存在再移动 apk
+        mkdir -p packages
+        find $OPENWRT_PATH/bin/packages/ -name "*.apk" -exec cp {} packages/ \; 2>/dev/null || true
         tar -zcf IPQ60XX.Packages.tar.gz packages
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
@@ -159,6 +167,7 @@ jobs:
           - ${{ env.VERSION_INFO }}
 
     - name: Delete Old Cache(删除旧缓存)
+      if: always()
       run: |
         # 获取缓存列表并删除
         gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key --jq '.[] | .key' | while read -r key; do
@@ -166,7 +175,7 @@ jobs:
         done
         # 输出缓存状态
         echo "========cache status========"
-        echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
-        echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
+        [ -d "$OPENWRT_PATH/.ccache" ] && echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)" || echo "ccache: N/A"
+        [ -d "$OPENWRT_PATH/staging_dir" ] && echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)" || echo "staging: N/A"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
